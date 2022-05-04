@@ -5,3 +5,8 @@
 export const sleep = (ms: number): Promise<void> => {
   return new Promise((resolve) => setTimeout(resolve, ms));
 };
+
+/**
+ * @returns Get Unix timestamp in seconds
+ */
+export const getUnixTs = (): number => new Date().getTime() / 1000;
