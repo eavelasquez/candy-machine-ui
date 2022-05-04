@@ -9,6 +9,40 @@ import { sleep } from './utils';
 export const DEFAULT_TIMEOUT = 60000;
 
 /**
+ * This function is used to get the errors per transaction
+ *
+ * @param connection Connection to use for the RPC calls
+ * @param txid Transaction ID
+ * @returns Errors per transaction
+ */
+export const getErrorForTransaction = async (
+  connection: Connection,
+  txid: string
+): Promise<string[]> => {
+  const errors: string[] = [];
+
+  // wait for all confirmation before getting transaction
+  await connection.confirmTransaction(txid, 'max');
+
+  // get transaction and check for errors
+  const tx = await connection.getParsedTransaction(txid);
+  if (tx?.meta && tx.meta.logMessages) {
+    tx.meta.logMessages.forEach((log: string) => {
+      const regex = /Error: (.*)/gm;
+      let match;
+      while ((match = regex.exec(log)) !== null) {
+        // this avoids infinite loops with zero-width matches
+        if (match.index === regex.lastIndex) regex.lastIndex++;
+
+        if (match.length > 1) errors.push(match[1]);
+      }
+    });
+  }
+
+  return errors;
+};
+
+/**
  * @param connection Connection to use for the RPC calls
  * @param txid Transaction ID
  * @param commitment Commitment to use for the RPC calls
