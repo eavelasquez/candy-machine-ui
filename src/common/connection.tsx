@@ -1,7 +1,10 @@
 import {
   Commitment,
   Connection,
+  RpcResponseAndContext,
   SignatureStatus,
+  SimulatedTransactionResponse,
+  Transaction,
   TransactionSignature,
 } from '@solana/web3.js';
 import { sleep } from './utils';
@@ -132,3 +135,34 @@ export const awaitTransactionSignatureConfirmation = async (
 
   return status;
 };
+
+export const simulateTransaction = async (
+  connection: Connection,
+  transaction: Transaction,
+  commitment: Commitment
+): Promise<RpcResponseAndContext<SimulatedTransactionResponse>> => {
+  // @ts-ignore
+  transaction.recentBlockhash = await connection._recentBlockhash(
+    // @ts-ignore
+    connection._disableBlockhashCaching,
+  );
+
+  const signData: Buffer = transaction.serializeMessage();
+  // @ts-ignore
+  const wireTransaction = transaction._serialize(signData);
+  const encodedTransaction = wireTransaction.toString('base64');
+  const config: { encoding: string; commitment: Commitment } = {
+    encoding: 'based64',
+    commitment,
+  };
+  const args: any[] = [encodedTransaction, config];
+
+  // @ts-ignore
+  const response = await connection._rpcRequest('simulateTransaction', args);
+  if (response.error) {
+    throw new Error('Failed to simulate transaction: ' + response.error.message);
+  }
+
+  return response.result;
+}
+
