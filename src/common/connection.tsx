@@ -350,5 +350,5 @@ export const sendTransaction = async (
     }
   }
 
-  return { txid: '', slot: 0 };
+  return { txid, slot };
 };
