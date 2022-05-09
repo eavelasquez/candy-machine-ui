@@ -20,7 +20,13 @@ export const DEFAULT_TIMEOUT = 60000;
 
 interface BlockhashAndFeeCalculator {
   blockhash: Blockhash;
-  feeCalculator: FeeCalculator;
+  lastValidBlockHeight: number;
+}
+
+export enum SequenceType {
+  Sequential,
+  Parallel,
+  StopOnFailure
 }
 
 /**
@@ -351,4 +357,99 @@ export const sendTransaction = async (
   }
 
   return { txid, slot };
+};
+
+export const sendTransactions = async (
+  connection: Connection,
+  instructions: TransactionInstruction[][],
+  signers: Keypair[][],
+  wallet: anchor.Wallet,
+  commitment: Commitment = 'singleGossip',
+  sequenceType: SequenceType = SequenceType.Parallel,
+  successCallback: (txid: string, ind: number) => void = (txid, ind) => {},
+  failureCallback: (reason: string, ind: number) => boolean = (txid, ind) => false,
+  block?: BlockhashAndFeeCalculator,
+  beforeTransactions: Transaction[] = [],
+  afterTransactions: Transaction[] = []
+): Promise<{ number: number; txs: { txid: string; slot: number }[] }> => {
+  if (!wallet.publicKey) {
+    throw new WalletNotConnectedError();
+  }
+
+  const unsignedTxns: Transaction[] = beforeTransactions;
+
+  if (!block) {
+    block = await connection.getLatestBlockhash(commitment);
+  }
+
+  for (let i = 0; i < instructions.length; i += 1) {
+    const instructionSubset = instructions[i];
+    const signerSubset = signers[i];
+
+    if (instructionSubset.length === 0) {
+      continue;
+    }
+
+    const transaction = new Transaction();
+    instructionSubset.forEach((instruction) => transaction.add(instruction));
+
+    transaction.recentBlockhash = block.blockhash;
+    transaction.feePayer = wallet.publicKey; // fee payed by the wallet owner
+
+    if (signerSubset.length > 0) {
+      transaction.partialSign(...signerSubset);
+    }
+
+    unsignedTxns.push(transaction);
+  }
+  unsignedTxns.push(...afterTransactions);
+
+  const partiallySignedTransactions = unsignedTxns.filter((transaction) => {
+    transaction.signatures.find((signature) => signature.publicKey.equals(wallet.publicKey));
+  });
+
+  const fullySignedTransactions = unsignedTxns.filter((transaction) => {
+    !transaction.signatures.find((signature) => signature.publicKey.equals(wallet.publicKey));
+  });
+
+  let signedTxns = await wallet.signAllTransactions(partiallySignedTransactions);
+  signedTxns = signedTxns.concat(fullySignedTransactions);
+
+  const pendingTxns: Promise<{ txid: string; slot: number }>[] = [];
+
+  console.log('Send txns length', signedTxns.length, 'vs handed in length', instructions.length);
+
+  for (let i = 0; i < signedTxns.length; i++) {
+    const signedTxnPromise = sendSignedTransaction({
+      connection,
+      signedTransaction: signedTxns[i]
+    });
+
+    if (sequenceType !== SequenceType.Parallel) {
+      try {
+        await signedTxnPromise.then(({ txid }) => {
+          successCallback(txid, i);
+        });
+        pendingTxns.push(signedTxnPromise);
+      } catch (error) {
+        console.log('Failed at txn index:', i);
+        console.log('Caught failure:', error);
+
+        // @ts-ignore
+        failureCallback(signedTxns[i], i);
+
+        if (sequenceType === SequenceType.StopOnFailure) {
+          return { number: i, txs: await Promise.all(pendingTxns) };
+        }
+      }
+    } else {
+      pendingTxns.push(signedTxnPromise);
+    }
+  }
+
+  if (sequenceType === SequenceType.Parallel) {
+    return { number: signedTxns.length, txs: await Promise.all(pendingTxns) };
+  }
+
+  return { number: signedTxns.length, txs: await Promise.all(pendingTxns) };
 };
