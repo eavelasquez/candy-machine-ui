@@ -76,18 +76,22 @@ export const awaitTransactionSignatureConfirmation = async (
     }, timeout);
 
     try {
-      subId = await connection.onSignature(txid, (result, context) => {
-        done = true;
-        status = { slot: context.slot, confirmations: 0, err: result.err };
+      subId = await connection.onSignature(
+        txid,
+        (result, context) => {
+          done = true;
+          status = { slot: context.slot, confirmations: 0, err: result.err };
 
-        if (result.err) {
-          console.error('Rejected via websocket:', result.err);
-          reject(status);
-        } else {
-          console.info('Resolved via websocket:', status);
-          resolve(status);
-        }
-      }, commitment);
+          if (result.err) {
+            console.error('Rejected via websocket:', result.err);
+            reject(status);
+          } else {
+            console.info('Resolved via websocket:', status);
+            resolve(status);
+          }
+        },
+        commitment
+      );
     } catch (error) {
       done = true;
       console.error('WS error in setup', txid, error);
@@ -136,6 +140,14 @@ export const awaitTransactionSignatureConfirmation = async (
   return status;
 };
 
+/**
+ * This function is used to simulate a transaction
+ *
+ * @param connection Connection to use for the RPC calls
+ * @param transaction Transaction to simulate
+ * @param commitment Commitment to use for the RPC calls
+ * @returns Simulated transaction response
+ */
 export const simulateTransaction = async (
   connection: Connection,
   transaction: Transaction,
@@ -144,7 +156,7 @@ export const simulateTransaction = async (
   // @ts-ignore
   transaction.recentBlockhash = await connection._recentBlockhash(
     // @ts-ignore
-    connection._disableBlockhashCaching,
+    connection._disableBlockhashCaching
   );
 
   const signData: Buffer = transaction.serializeMessage();
@@ -160,9 +172,10 @@ export const simulateTransaction = async (
   // @ts-ignore
   const response = await connection._rpcRequest('simulateTransaction', args);
   if (response.error) {
-    throw new Error('Failed to simulate transaction: ' + response.error.message);
+    throw new Error(
+      'Failed to simulate transaction: ' + response.error.message
+    );
   }
 
   return response.result;
-}
-
+};
