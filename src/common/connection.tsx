@@ -1,9 +1,7 @@
 import * as anchor from '@project-serum/anchor';
 import {
-  Blockhash,
   Commitment,
   Connection,
-  FeeCalculator,
   Keypair,
   RpcResponseAndContext,
   SendOptions,
@@ -14,20 +12,13 @@ import {
   TransactionSignature,
 } from '@solana/web3.js';
 import { WalletNotConnectedError } from '@solana/wallet-adapter-base';
-import { getUnixTs, sleep } from './utils';
-
-export const DEFAULT_TIMEOUT = 60000;
-
-interface BlockhashAndFeeCalculator {
-  blockhash: Blockhash;
-  lastValidBlockHeight: number;
-}
-
-export enum SequenceType {
-  Sequential,
-  Parallel,
-  StopOnFailure
-}
+import {
+  BlockhashAndFeeCalculator,
+  DEFAULT_TIMEOUT,
+  getUnixTs,
+  SequenceType,
+  sleep
+} from './utils';
 
 /**
  * This function is used to get the errors per transaction
@@ -289,6 +280,18 @@ export const sendSignedTransaction = async ({
   return { txid, slot };
 };
 
+/**
+ *
+ * @param connection Connection to use for the RPC calls
+ * @param instructions Instructions to send
+ * @param signers Signers
+ * @param wallet Wallet to use
+ * @param awaitConfirmation Whether to await confirmation
+ * @param commitment Commitment to use for the RPC calls
+ * @param includesFeePayer Whether to include the fee payer
+ * @param block Block to use for the RPC calls
+ * @returns {Promise<{ txid: string; slot: number }>}
+ */
 export const sendTransaction = async (
   connection: Connection,
   instructions: TransactionInstruction[] | Transaction,
@@ -361,6 +364,21 @@ export const sendTransaction = async (
   return { txid, slot };
 };
 
+/**
+ *
+ * @param connection Connection to use for the RPC calls
+ * @param instructions Transaction instructions set
+ * @param signers Signers set
+ * @param wallet Wallet to use for signing
+ * @param commitment Commitment to use for the RPC calls
+ * @param sequenceType Sequence type to use for the RPC calls
+ * @param successCallback Callback to call on success
+ * @param failureCallback Callback to call on failure
+ * @param block Block to use for the RPC calls
+ * @param beforeTransactions
+ * @param afterTransactions
+ * @returns {Promise<{ number: number; txs: { txid: string; slot: number }[] }>}
+ */
 export const sendTransactions = async (
   connection: Connection,
   instructions: TransactionInstruction[][],

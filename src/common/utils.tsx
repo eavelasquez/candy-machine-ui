@@ -1,3 +1,18 @@
+import { Blockhash } from "@solana/web3.js";
+
+export const DEFAULT_TIMEOUT = 60000;
+
+export interface BlockhashAndFeeCalculator {
+  blockhash: Blockhash;
+  lastValidBlockHeight: number;
+}
+
+export enum SequenceType {
+  Sequential,
+  Parallel,
+  StopOnFailure
+}
+
 /**
  * @param ms Milliseconds
  * @returns A promise that resolves after ms milliseconds
