@@ -1,15 +1,27 @@
+import * as anchor from '@project-serum/anchor';
 import {
+  Blockhash,
   Commitment,
   Connection,
+  FeeCalculator,
+  Keypair,
   RpcResponseAndContext,
+  SendOptions,
   SignatureStatus,
   SimulatedTransactionResponse,
   Transaction,
+  TransactionInstruction,
   TransactionSignature,
 } from '@solana/web3.js';
+import { WalletNotConnectedError } from '@solana/wallet-adapter-base';
 import { getUnixTs, sleep } from './utils';
 
 export const DEFAULT_TIMEOUT = 60000;
+
+interface BlockhashAndFeeCalculator {
+  blockhash: Blockhash;
+  feeCalculator: FeeCalculator;
+}
 
 /**
  * This function is used to get the errors per transaction
@@ -267,4 +279,76 @@ export const sendSignedTransaction = async ({
 
   console.log('Latency', txid, getUnixTs() - startTime);
   return { txid, slot };
+};
+
+export const sendTransaction = async (
+  connection: Connection,
+  instructions: TransactionInstruction[] | Transaction,
+  signers: Keypair[],
+  wallet: anchor.Wallet,
+  awaitConfirmation: boolean = true,
+  commitment: Commitment = 'singleGossip',
+  includesFeePayer: boolean = false,
+  block?: BlockhashAndFeeCalculator
+): Promise<{ txid: string; slot: number }> => {
+  if (!wallet.publicKey) {
+    throw new WalletNotConnectedError();
+  }
+
+  let transaction: Transaction;
+  if (instructions instanceof Transaction) {
+    transaction = instructions;
+  } else {
+    transaction = new Transaction();
+    instructions.forEach((instruction) => transaction.add(instruction));
+
+    transaction.recentBlockhash = (
+      block || (await connection.getLatestBlockhash(commitment))
+    ).blockhash;
+
+    if (includesFeePayer) {
+      transaction.feePayer = signers[0].publicKey;
+    } else {
+      transaction.feePayer = wallet.publicKey;
+    }
+
+    if (signers.length > 0) {
+      transaction.partialSign(...signers);
+    }
+
+    if (!includesFeePayer) {
+      transaction = await wallet.signTransaction(transaction);
+    }
+  }
+
+  const rawTransaction = transaction.serialize();
+  const options = { skipPreflight: true, commitment } as SendOptions;
+
+  const txid = await connection.sendRawTransaction(rawTransaction, options);
+  let slot: number = 0;
+
+  if (awaitConfirmation) {
+    const confirmation = await awaitTransactionSignatureConfirmation(
+      connection,
+      txid,
+      commitment,
+      undefined,
+      DEFAULT_TIMEOUT
+    );
+
+    if (!confirmation) {
+      throw new Error('Timed out awaiting confirmation on transaction');
+    }
+
+    slot = confirmation?.slot || 0;
+
+    if (confirmation?.err) {
+      const errors = await getErrorForTransaction(connection, txid);
+
+      console.error(errors);
+      throw new Error(`Raw transaction ${txid} failed`);
+    }
+  }
+
+  return { txid: '', slot: 0 };
 };
