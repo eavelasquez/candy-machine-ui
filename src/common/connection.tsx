@@ -7,7 +7,7 @@ import {
   Transaction,
   TransactionSignature,
 } from '@solana/web3.js';
-import { sleep } from './utils';
+import { getUnixTs, sleep } from './utils';
 
 export const DEFAULT_TIMEOUT = 60000;
 
@@ -178,4 +178,93 @@ export const simulateTransaction = async (
   }
 
   return response.result;
+};
+
+export const sendSignedTransaction = async ({
+  connection,
+  signedTransaction,
+  timeout = DEFAULT_TIMEOUT,
+}: {
+  connection: Connection;
+  signedTransaction: Transaction;
+  sendingMessage?: string;
+  sentMessage?: string;
+  successMessage?: string;
+  timeout?: number;
+}): Promise<{ txid: string; slot: number }> => {
+  const rawTransaction = signedTransaction.serialize();
+
+  const startTime = getUnixTs();
+  let slot = 0;
+  const txid: TransactionSignature = await connection.sendRawTransaction(
+    rawTransaction,
+    {
+      skipPreflight: true,
+    }
+  );
+
+  console.log('Started awaiting confirmation for', txid);
+
+  let done = false;
+  (async () => {
+    while (!done && getUnixTs() - startTime < timeout) {
+      connection.sendRawTransaction(rawTransaction, { skipPreflight: true });
+      await sleep(500);
+    }
+  })();
+
+  try {
+    const confirmation = await awaitTransactionSignatureConfirmation(
+      connection,
+      txid,
+      'recent',
+      true,
+      timeout
+    );
+
+    if (!confirmation) {
+      throw new Error('Timed out awaiting confirmation on transaction');
+    }
+
+    if (confirmation.err) {
+      console.error(confirmation.err);
+      throw new Error('Transaction failed: Custom instruction error');
+    }
+
+    slot = confirmation?.slot || 0;
+  } catch (error: any) {
+    console.error('Timeout error caught', error);
+
+    if (error.timeout) {
+      throw new Error('Timed out awaiting confirmation on transaction');
+    }
+
+    let simulateResult: SimulatedTransactionResponse | null = null;
+    try {
+      simulateResult = (
+        await simulateTransaction(connection, signedTransaction, 'single')
+      ).value;
+    } catch (error) {
+      console.error('Simulate error caught', error);
+    }
+
+    if (simulateResult && simulateResult.err) {
+      if (simulateResult.logs) {
+        for (let i = simulateResult.logs.length - 1; i >= 0; i -= 1) {
+          const line = simulateResult.logs[i];
+
+          if (line.startsWith('Program log: ')) {
+            throw new Error(`Transaction failed: ${line.slice('Program log: '.length)}`);
+          }
+        }
+      }
+
+      throw new Error(JSON.stringify(simulateResult.err));
+    }
+  } finally {
+    done = true;
+  }
+
+  console.log('Latency', txid, getUnixTs() - startTime);
+  return { txid, slot };
 };
