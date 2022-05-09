@@ -272,7 +272,9 @@ export const sendSignedTransaction = async ({
           const line = simulateResult.logs[i];
 
           if (line.startsWith('Program log: ')) {
-            throw new Error(`Transaction failed: ${line.slice('Program log: '.length)}`);
+            throw new Error(
+              `Transaction failed: ${line.slice('Program log: '.length)}`
+            );
           }
         }
       }
@@ -405,29 +407,40 @@ export const sendTransactions = async (
   unsignedTxns.push(...afterTransactions);
 
   const partiallySignedTransactions = unsignedTxns.filter((transaction) => {
-    transaction.signatures.find((signature) => signature.publicKey.equals(wallet.publicKey));
+    transaction.signatures.find((signature) =>
+      signature.publicKey.equals(wallet.publicKey)
+    );
   });
 
   const fullySignedTransactions = unsignedTxns.filter((transaction) => {
-    !transaction.signatures.find((signature) => signature.publicKey.equals(wallet.publicKey));
+    !transaction.signatures.find((signature) =>
+      signature.publicKey.equals(wallet.publicKey)
+    );
   });
 
-  let signedTxns = await wallet.signAllTransactions(partiallySignedTransactions);
-  signedTxns = signedTxns.concat(fullySignedTransactions);
+  let signedTxns = await wallet.signAllTransactions(
+    partiallySignedTransactions
+  );
+  signedTxns = fullySignedTransactions.concat(signedTxns);
 
   const pendingTxns: Promise<{ txid: string; slot: number }>[] = [];
 
-  console.log('Send txns length', signedTxns.length, 'vs handed in length', instructions.length);
+  console.log(
+    'Signed txns length',
+    signedTxns.length,
+    'vs handed in length',
+    instructions.length
+  );
 
   for (let i = 0; i < signedTxns.length; i++) {
     const signedTxnPromise = sendSignedTransaction({
       connection,
-      signedTransaction: signedTxns[i]
+      signedTransaction: signedTxns[i],
     });
 
     if (sequenceType !== SequenceType.Parallel) {
       try {
-        await signedTxnPromise.then(({ txid }) => {
+        await signedTxnPromise.then(({ txid, slot: _slot }) => {
           successCallback(txid, i);
         });
         pendingTxns.push(signedTxnPromise);
@@ -447,7 +460,7 @@ export const sendTransactions = async (
     }
   }
 
-  if (sequenceType === SequenceType.Parallel) {
+  if (sequenceType !== SequenceType.Parallel) {
     return { number: signedTxns.length, txs: await Promise.all(pendingTxns) };
   }
 
